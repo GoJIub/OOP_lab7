@@ -34,6 +34,7 @@ add_executable(${CMAKE_PROJECT_NAME}
     src/orc.cpp
     src/squirrel.cpp
     src/bear.cpp
+    src/game_utils.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
@@ -49,6 +50,7 @@ add_executable(tests
     src/orc.cpp
     src/squirrel.cpp
     src/bear.cpp
+    src/game_utils.cpp
 )
 
 target_include_directories(tests PRIVATE
