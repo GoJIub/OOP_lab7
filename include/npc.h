@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <shared_mutex>
 
 struct Orc;
 struct Squirrel;
@@ -15,9 +16,10 @@ enum class NPCType {
     Bear = 3
 };
 
-struct FightOutcome {
-    bool attackerDead = false;
-    bool defenderDead = false;
+enum class FightOutcome {
+    AttackerKilled,
+    DefenderKilled,
+    NobodyDied
 };
 
 struct IFightVisitor {
@@ -30,16 +32,18 @@ struct IFightVisitor {
 struct IFightObserver {
     virtual void on_fight(const std::shared_ptr<class NPC> &attacker,
                           const std::shared_ptr<class NPC> &defender,
-                          bool win) = 0;
+                          FightOutcome outcome) = 0;
     virtual ~IFightObserver() = default;
 };
 
 struct NPC : public std::enable_shared_from_this<NPC> {
+    mutable std::mutex mtx;
     NPCType type{NPCType::Unknown};
     std::string name;
     int x{0};
     int y{0};
-    std::vector<std::weak_ptr<IFightObserver>> observers;
+    bool alive{true};
+    std::vector<std::shared_ptr<IFightObserver>> observers;
 
     NPC() = default;
     NPC(NPCType t, std::string_view nm, int x_, int y_);
@@ -48,13 +52,20 @@ struct NPC : public std::enable_shared_from_this<NPC> {
     virtual FightOutcome accept(IFightVisitor &visitor) = 0;
 
     void subscribe(const std::shared_ptr<IFightObserver> &obs);
-    void notify_kill(const std::shared_ptr<NPC> &victim);
+    void notify_fight(const std::shared_ptr<NPC> &defender, FightOutcome outcome);
 
     virtual void save(std::ostream &os) const;
 
     virtual void print(std::ostream &os) const;
 
     bool is_close(const std::shared_ptr<NPC> &other, int distance) const;
+    
+    void move(int shift_x, int shift_y, int max_x, int max_y);
+
+    bool is_alive() const;
+    void must_die();
+    std::pair<int,int> position() const;
+    std::string get_color(NPCType t) const;
 };
 
 std::string type_to_string(NPCType t);

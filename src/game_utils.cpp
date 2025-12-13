@@ -1,4 +1,4 @@
-#include "game_utils.h"
+#include "../include/game_utils.h"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -6,6 +6,17 @@
 #include <random>
 #include <algorithm>
 #include <sstream>
+
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <queue>
+#include <optional>
+#include <array>
+#include <thread>
+
+using namespace std::chrono_literals;
+std::mutex print_mutex;
 
 // ---------------- Константы FileObserver ----------------
 const int FileObserver::W1 = 18; // имя атакующего
@@ -16,19 +27,51 @@ const int FileObserver::W3 = 18; // имя защищающегося
 const int FileObserver::W4 = 10; // тип защищающегося
 const int FileObserver::WP2 = 9; // позиция защищающегося
 
+
 // ---------------- Наблюдатели ----------------
-void ConsoleObserver::on_fight(const std::shared_ptr<NPC> &attacker,
-                               const std::shared_ptr<NPC> &defender,
-                               bool win)
-{
-    if (!win) return;
-    std::cout << ">>> " << attacker->name << " (" << type_to_string(attacker->type) << ")"
-              << "  killed  " << defender->name << " (" << type_to_string(defender->type) << ")\n";
+std::shared_ptr<IFightObserver> ConsoleObserver::get() {
+    static ConsoleObserver instance;
+    return std::shared_ptr<IFightObserver>(&instance, [](IFightObserver*) {});
 }
 
-FileObserver::FileObserver(const std::string &filename) : fname(filename) {
+void ConsoleObserver::on_fight(const std::shared_ptr<NPC>& attacker,
+                               const std::shared_ptr<NPC>& defender,
+                               FightOutcome outcome)
+{
+    if (!attacker || !defender) return;
+
+    std::lock_guard<std::mutex> lck(print_mutex);
+
+    switch (outcome) {
+    case FightOutcome::DefenderKilled:
+        std::cout << ">>> "
+                  << attacker->name << " (" << type_to_string(attacker->type) << ")"
+                  << " killed "
+                  << defender->name << " (" << type_to_string(defender->type) << ")\n";
+        break;
+
+    case FightOutcome::AttackerKilled:
+        std::cout << ">>> "
+                  << defender->name << " (" << type_to_string(defender->type) << ")"
+                  << " killed "
+                  << attacker->name << " (" << type_to_string(attacker->type) << ")\n";
+        break;
+
+    case FightOutcome::NobodyDied:
+        std::cout << ">>> "
+                  << defender->name << " (" << type_to_string(defender->type) << ")"
+                  << " escaped from "
+                  << attacker->name << " (" << type_to_string(attacker->type) << ")\n";
+        break;
+    }
+}
+
+FileObserver::FileObserver(const std::string& filename) : fname(filename)
+{
     std::ofstream f(fname, std::ios::trunc);
     if (!f.good()) return;
+
+    std::lock_guard<std::mutex> lck(print_mutex);
 
     f << std::left
       << std::setw(W1)  << "Attacker"
@@ -43,28 +86,43 @@ FileObserver::FileObserver(const std::string &filename) : fname(filename) {
     f << std::string(W1 + W2 + WP + WA + W3 + W4 + WP2, '-') << "\n";
 }
 
-void FileObserver::on_fight(const std::shared_ptr<NPC> &attacker,
-                            const std::shared_ptr<NPC> &defender,
-                            bool win)
+std::shared_ptr<IFightObserver> FileObserver::get(const std::string& filename)
 {
-    if (!win) return;
+    static std::shared_ptr<IFightObserver> instance =
+        std::shared_ptr<IFightObserver>(
+            new FileObserver(filename),
+            [](IFightObserver*){}
+        );
+
+    return instance;
+}
+
+void FileObserver::on_fight(const std::shared_ptr<NPC>& attacker,
+                            const std::shared_ptr<NPC>& defender,
+                            FightOutcome outcome)
+{
     if (!attacker || !defender) return;
 
     std::ofstream f(fname, std::ios::app);
     if (!f.good()) return;
 
-    std::ostringstream pos_str;
-    pos_str << '(' << attacker->x << ',' << attacker->y << ')';
-    std::string aPos = pos_str.str();
-    pos_str.str("");
-    pos_str << '(' << defender->x << ',' << defender->y << ')';
-    std::string dPos = pos_str.str();
+    std::lock_guard<std::mutex> lck(print_mutex);
+
+    std::ostringstream ss;
+    ss << '(' << attacker->x << ',' << attacker->y << ')';
+    std::string aPos = ss.str();
+    ss.str("");
+    ss << '(' << defender->x << ',' << defender->y << ')';
+    std::string dPos = ss.str();
+
+    std::string action =
+        (outcome == FightOutcome::NobodyDied) ? "escaped" : "killed";
 
     f << std::left
       << std::setw(W1) << attacker->name
       << std::setw(W2) << type_to_string(attacker->type)
       << std::setw(WP) << aPos
-      << std::setw(WA) << "killed"
+      << std::setw(WA) << action
       << std::setw(W3) << defender->name
       << std::setw(W4) << type_to_string(defender->type)
       << std::setw(WP2) << dPos
@@ -86,15 +144,80 @@ FightOutcome AttackVisitor::visit(Bear &defender) {
     return compute(defender);
 }
 
-FightOutcome AttackVisitor::compute(NPC &defender) {
-    FightOutcome out;
-    NPCType a = attacker->type;
-    NPCType d = defender.type;
-    bool aKills = kills(a, d);
-    bool dKills = kills(d, a);
-    out.defenderDead = aKills;
-    out.attackerDead = dKills;
-    return out;
+FightOutcome AttackVisitor::compute(NPC& defender) {
+    if (!attacker->is_alive() || !defender.is_alive())
+        return FightOutcome::NobodyDied;
+
+    int attack = std::rand() % 6 + 1;
+    int defend = std::rand() % 6 + 1;
+
+    if (attack > defend && kills(attacker->type, defender.type))
+        return FightOutcome::DefenderKilled;
+
+    if (defend > attack && kills(defender.type, attacker->type))
+        return FightOutcome::AttackerKilled;
+
+    return FightOutcome::NobodyDied;
+}
+
+FightManager& FightManager::instance() {
+    static FightManager inst;
+    return inst;
+}
+
+void FightManager::push(FightEvent ev) {
+    std::lock_guard lock(mtx);
+    queue.push(std::move(ev));
+}
+
+void FightManager::operator()()
+{
+    while (true) {
+        std::optional<FightEvent> ev;
+
+        {
+            std::lock_guard lock(mtx);
+            if (!queue.empty()) {
+                ev = queue.front();
+                queue.pop();
+            }
+        }
+
+        if (ev) {
+            auto& attacker = ev->attacker;
+            auto& defender = ev->defender;
+
+            if (!attacker || !defender) continue;
+            if (!attacker->is_alive() || !defender->is_alive()) continue;
+
+            AttackVisitor visitor(attacker);
+            FightOutcome outcome = defender->accept(visitor);
+
+            bool defender_can_be_killed = kills(attacker->type, defender->type);
+            bool attacker_can_be_killed = kills(defender->type, attacker->type);
+
+            switch (outcome) {
+            case FightOutcome::DefenderKilled:
+                defender->must_die();
+                attacker->notify_fight(defender, FightOutcome::DefenderKilled);
+                break;
+
+            case FightOutcome::AttackerKilled:
+                attacker->must_die();
+                defender->notify_fight(attacker, FightOutcome::AttackerKilled);
+                break;
+
+            case FightOutcome::NobodyDied:
+                if (defender_can_be_killed)
+                    defender->notify_fight(attacker, FightOutcome::NobodyDied);
+                if (attacker_can_be_killed)
+                    attacker->notify_fight(defender, FightOutcome::NobodyDied);
+                break;
+            }
+        }
+
+        std::this_thread::sleep_for(50ms);
+    }
 }
 
 // ---------------- Сохранение/Загрузка ----------------
@@ -140,46 +263,67 @@ void print_all(const std::vector<std::shared_ptr<NPC>> &list) {
     std::cout << std::string(40, '=') << std::endl << std::endl;
 }
 
-// ---------------- Раунд боя ----------------
-static void mark_dead(std::shared_ptr<NPC> p,
-                      std::vector<std::shared_ptr<NPC>> &dead,
-                      std::unordered_set<NPC*> &dead_set) 
-{
-    if (!p) return;
-    if (dead_set.insert(p.get()).second)
-        dead.push_back(p);
+void print_survivors(const std::vector<std::shared_ptr<NPC>>& npcs) {
+    std::lock_guard<std::mutex> lck(print_mutex);
+    std::cout << "\n=== Survivors ===\n";
+    for (auto& npc : npcs)
+        if (npc->is_alive()) {
+            npc->print(std::cout);
+            std::cout << '\n';
+        }
 }
 
-std::vector<std::shared_ptr<NPC>> fight_round(std::vector<std::shared_ptr<NPC>> &list, int distance) {
-    std::vector<std::shared_ptr<NPC>> dead;
-    std::unordered_set<NPC*> dead_set;
+int move_distance(NPCType type) {
+    switch (type) {
+        case NPCType::Orc:      return 20;
+        case NPCType::Bear:     return 5;
+        case NPCType::Squirrel: return 5;
+        default: return 0;
+    }
+}
 
-    const size_t n = list.size();
-    for (size_t i = 0; i < n; ++i) {
-        for (size_t j = i + 1; j < n; ++j) {
-            auto &A = list[i];
-            auto &B = list[j];
-            if (!A || !B) continue;
-            if (dead_set.count(A.get()) || dead_set.count(B.get())) continue;
-            if (!A->is_close(B, distance)) continue;
+int kill_distance(NPCType type) {
+    switch (type) {
+        case NPCType::Orc:      return 10;
+        case NPCType::Bear:     return 10;
+        case NPCType::Squirrel: return 5;
+        default: return 0;
+    }
+}
 
-            AttackVisitor vA(A);
-            FightOutcome resA = B->accept(vA);
-            AttackVisitor vB(B);
-            FightOutcome resB = A->accept(vB);
+void draw_map(const std::vector<std::shared_ptr<NPC>>& list) {
+    std::array<std::pair<std::string, char>, GRID * GRID> field{};
+    field.fill({"", ' '});
 
-            if (resA.defenderDead) {
-                mark_dead(B, dead, dead_set);
-                A->notify_kill(B);
-            }
-            if (resB.defenderDead) {
-                mark_dead(A, dead, dead_set);
-                B->notify_kill(A);
-            }
+    for (auto& npc : list) {
+        if (!npc->is_alive()) continue;
+
+        auto [x, y] = npc->position();
+        int gx = std::clamp(x * GRID / MAP_X, 0, GRID - 1);
+        int gy = std::clamp(y * GRID / MAP_Y, 0, GRID - 1);
+
+        char c = '?';
+        switch (npc->type) {
+            case NPCType::Orc: c = 'O'; break;
+            case NPCType::Bear: c = 'B'; break;
+            case NPCType::Squirrel: c = 'S'; break;
+            default: break;
         }
+
+        field[gx + gy * GRID] = {npc->get_color(npc->type), c};
     }
 
-    return dead;
+    std::lock_guard<std::mutex> lck(print_mutex);
+
+    for (int y = 0; y < GRID; ++y) {
+        for (int x = 0; x < GRID; ++x) {
+            auto [color, ch] = field[x + y * GRID];
+            std::string reset = "\033[0m";  // Сброс цвета для безопасности
+            std::cout << "[" << color << ch << reset << "]";
+        }
+        std::cout << '\n';
+    }
+    std::cout << std::string(3 * GRID, '=') << "\n\n";
 }
 
 // ---------------- Функции рандома (можно заменить на обычный rand) ----------------

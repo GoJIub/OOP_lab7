@@ -1,6 +1,7 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <random>
 #include "npc.h"
 #include "orc.h"
 #include "squirrel.h"
@@ -15,10 +16,12 @@ void NPC::subscribe(const std::shared_ptr<IFightObserver> &obs) {
     observers.push_back(obs);
 }
 
-void NPC::notify_kill(const std::shared_ptr<NPC> &victim) {
-    for (auto &w : observers)
-        if (auto s = w.lock())
-            s->on_fight(shared_from_this(), victim, true);
+void NPC::notify_fight(const std::shared_ptr<NPC>& other,
+                       FightOutcome outcome)
+{
+
+    for (auto &o : observers)
+        o->on_fight(std::shared_ptr<NPC>(this, [](NPC *) {}), other, outcome);
 }
 
 void NPC::save(std::ostream &os) const {
@@ -43,6 +46,40 @@ bool NPC::is_close(const std::shared_ptr<NPC> &other, int distance) const {
         return true;
     else
         return false;
+}
+
+void NPC::move(int shift_x, int shift_y, int max_x, int max_y) {
+    std::lock_guard<std::mutex> lck(mtx);
+
+    if ((x + shift_x >= 0) && (x + shift_x <= max_x))
+        x += shift_x;
+    if ((y + shift_y >= 0) && (y + shift_y <= max_y))
+        y += shift_y;
+}
+
+bool NPC::is_alive() const {
+    std::lock_guard<std::mutex> lck(mtx);
+    return alive;
+}
+
+void NPC::must_die() {
+    std::lock_guard<std::mutex> lck(mtx);
+    alive = false;
+}
+
+std::pair<int,int> NPC::position() const {
+    std::lock_guard<std::mutex> lck(mtx);
+    return {x, y};
+}
+
+std::string NPC::get_color(NPCType t) const {
+    std::lock_guard<std::mutex> lck(mtx);
+    switch (t) {
+        case NPCType::Orc: return "\033[31m";
+        case NPCType::Bear: return "\033[33m";
+        case NPCType::Squirrel: return "\033[32m";
+        default: return "\033[35m";
+    }
 }
 
 std::shared_ptr<NPC> createNPC(NPCType type, const std::string &name, int x, int y) {

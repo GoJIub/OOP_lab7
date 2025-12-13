@@ -1,58 +1,88 @@
 #include "include/npc.h"
-#include "include/orc.h"
-#include "include/squirrel.h"
-#include "include/bear.h"
-#include "game_utils.h"
+#include "include/game_utils.h"
 
-#include <algorithm>
+#include <thread>
+#include <atomic>
+#include <chrono>
+
+using namespace std::chrono_literals;
+
 
 int main() {
-    auto consoleObs = std::make_shared<ConsoleObserver>();
-    auto fileObs = std::make_shared<FileObserver>("log.txt");
+    // auto consoleObs = ConsoleObserver::get();
+    auto fileObs = FileObserver::get("log.txt");
+    std::srand(static_cast<unsigned>(time(nullptr)));
 
-    std::vector<std::shared_ptr<NPC>> list;
-    const int START = 100;
-    for (int i = 0; i < START; ++i) {
+    std::vector<std::shared_ptr<NPC>> npcs;
+    constexpr int NPC_COUNT = 100;
+
+    for (int i = 0; i < NPC_COUNT; ++i) {
         NPCType t = random_type();
-        std::string name;
-        if (t == NPCType::Orc) name = "Orc_" + std::to_string(i+1);
-        else if (t == NPCType::Bear) name = "Bear_" + std::to_string(i+1);
-        else name = "Squirrel_" + std::to_string(i+1);
-        
-        int x = random_coord(0, 500);
-        int y = random_coord(0, 500);
-        auto p = createNPC(t, name, x, y);
-        if (p) {
-            p->subscribe(consoleObs);
-            p->subscribe(fileObs);
-            list.push_back(p);
+        std::string name =
+            (t == NPCType::Orc ? "Orc_" :
+            (t == NPCType::Bear ? "Bear_" : "Squirrel_")) + std::to_string(i);
+
+        auto npc = createNPC(
+            t,
+            name,
+            random_coord(0, MAP_X),
+            random_coord(0, MAP_Y)
+        );
+
+        // npc->subscribe(consoleObs);
+        npc->subscribe(fileObs);
+        npcs.push_back(npc);
+    }
+
+    std::atomic<bool> running{true};
+
+    // ---- Fight thread ----
+    std::thread fight_thread(std::ref(FightManager::instance()));
+
+    // ---- Move + detect thread ----
+    std::thread move_thread([&]() {
+        while (running) {
+            for (auto& npc : npcs) {
+                if (!npc->is_alive()) continue;
+
+                int d = move_distance(npc->type);
+                npc->move(
+                    std::rand() % (2 * d + 1) - d,
+                    std::rand() % (2 * d + 1) - d,
+                    MAP_X,
+                    MAP_Y
+                );
+            }
+
+            for (auto& a : npcs)
+                for (auto& b : npcs)
+                    if (a != b &&
+                        a->is_alive() &&
+                        b->is_alive() &&
+                        a->is_close(b, kill_distance(a->type)))
+                        FightManager::instance().push({a, b});
+
+            std::this_thread::sleep_for(10ms);
         }
-    }
+    });
 
-    print_all(list);
-    save_all(list, "npcs.txt");
-    std::cout << "Saved to npcs.txt\n";
-
-    auto loaded = load_all("npcs.txt");
-    for (auto &p : loaded) {
-        p->subscribe(consoleObs);
-        p->subscribe(fileObs);
-    }
-    std::cout << "Loaded " << loaded.size() << " NPCs\n";
-
-    int total_killed = 0;
-    for (int distance = 20; distance <= 200 && !loaded.empty(); distance += 20) {
-        std::cout << "\n";
-        auto dead = fight_round(loaded, distance);
-        for (auto &d : dead) {
-            auto it = std::find(loaded.begin(), loaded.end(), d);
-            if (it != loaded.end()) loaded.erase(it);
+    // ---- Print map thread ----
+    std::thread print_thread([&]() {
+        while (running) {
+            draw_map(npcs);
+            std::this_thread::sleep_for(1s);
         }
-        std::cout << "Distance=" << distance << " killed=" << dead.size() << " remaining=" << loaded.size() << "\n";
-        total_killed += static_cast<int>(dead.size());
-    }
+    });
 
-    std::cout << "Fight ended. Total killed: " << total_killed << "\n";
-    print_all(loaded);
+    // ---- Game timer ----
+    std::this_thread::sleep_for(30s);
+    running = false;
+
+    move_thread.join();
+    print_thread.detach(); // безопасно, вывод не критичен
+
+    // ---- Results ----
+    print_survivors(npcs);
+
     return 0;
 }
