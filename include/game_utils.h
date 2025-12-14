@@ -3,6 +3,8 @@
 #include <queue>
 #include <memory>
 #include <string>
+#include <atomic>
+#include <condition_variable>
 #include "npc.h"
 #include "orc.h"
 #include "squirrel.h"
@@ -59,11 +61,14 @@ public:
 
     void push(FightEvent ev);
     void operator()();
+    void stop();
 
 private:
     FightManager() = default;
     std::queue<FightEvent> queue;
     std::mutex mtx;
+    std::atomic<bool> running{true};
+    std::condition_variable cv;
 };
 
 // ---------------- Вспомогательные функции ----------------

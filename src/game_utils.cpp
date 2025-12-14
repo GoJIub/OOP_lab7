@@ -166,35 +166,52 @@ FightManager& FightManager::instance() {
 }
 
 void FightManager::push(FightEvent ev) {
-    std::lock_guard lock(mtx);
-    queue.push(std::move(ev));
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        queue.push(std::move(ev));
+    }
+    cv.notify_one();
 }
 
 void FightManager::operator()()
 {
-    while (true) {
-        std::optional<FightEvent> ev;
+    using namespace std::chrono_literals;
 
+    constexpr int MAX_EVENTS_PER_TICK = 50; // обрабатываем пачками, повышай/понижай при необходимости
+    std::vector<FightEvent> batch;
+    batch.reserve(MAX_EVENTS_PER_TICK);
+
+    while (true) {
+        // Подождать либо пока в очереди не появится что-то, либо пока running станет false
         {
-            std::lock_guard lock(mtx);
-            if (!queue.empty()) {
-                ev = queue.front();
+            std::unique_lock<std::mutex> lock(mtx);
+            // cv.wait_for(lock, 100ms, [this]() { return !queue.empty() || !running.load(); });
+            cv.wait(lock, [this]() { return !queue.empty() || !running.load(); });
+
+            // если остановились и очередь пуста => выход
+            if (!running.load() && queue.empty()) {
+                break;
+            }
+
+            // Собираем до MAX_EVENTS_PER_TICK событий в локальную пачку
+            batch.clear();
+            for (int i = 0; i < MAX_EVENTS_PER_TICK && !queue.empty(); ++i) {
+                batch.push_back(std::move(queue.front()));
                 queue.pop();
             }
+            // release lock; дальше обрабатываем batch без удержания мtx
         }
 
-        if (ev) {
-            auto& attacker = ev->attacker;
-            auto& defender = ev->defender;
+        // Обрабатываем собранную пачку
+        for (auto &ev : batch) {
+            auto attacker = ev.attacker;
+            auto defender = ev.defender;
 
             if (!attacker || !defender) continue;
             if (!attacker->is_alive() || !defender->is_alive()) continue;
 
             AttackVisitor visitor(attacker);
             FightOutcome outcome = defender->accept(visitor);
-
-            bool defender_can_be_killed = kills(attacker->type, defender->type);
-            bool attacker_can_be_killed = kills(defender->type, attacker->type);
 
             switch (outcome) {
             case FightOutcome::DefenderKilled:
@@ -208,6 +225,9 @@ void FightManager::operator()()
                 break;
 
             case FightOutcome::NobodyDied:
+                bool defender_can_be_killed = kills(attacker->type, defender->type);
+                bool attacker_can_be_killed = kills(defender->type, attacker->type);
+
                 if (defender_can_be_killed)
                     defender->notify_fight(attacker, FightOutcome::NobodyDied);
                 if (attacker_can_be_killed)
@@ -215,9 +235,13 @@ void FightManager::operator()()
                 break;
             }
         }
-
-        std::this_thread::sleep_for(50ms);
+        // После обработки пачки вернёмся в wait_for — нет busy-loop
     }
+}
+
+void FightManager::stop() {
+    running.store(false);
+    cv.notify_all(); // разбудить consumer, чтобы он мог выйти при пустой очереди
 }
 
 // ---------------- Сохранение/Загрузка ----------------
@@ -315,6 +339,7 @@ void draw_map(const std::vector<std::shared_ptr<NPC>>& list) {
 
     std::lock_guard<std::mutex> lck(print_mutex);
 
+    std::cout << std::string(3 * GRID, '=') << "\n";
     for (int y = 0; y < GRID; ++y) {
         for (int x = 0; x < GRID; ++x) {
             auto [color, ch] = field[x + y * GRID];

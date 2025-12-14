@@ -11,10 +11,10 @@ using namespace std::chrono_literals;
 int main() {
     // auto consoleObs = ConsoleObserver::get();
     auto fileObs = FileObserver::get("log.txt");
-    std::srand(static_cast<unsigned>(time(nullptr)));
 
+    // ---- NPCs ----
     std::vector<std::shared_ptr<NPC>> npcs;
-    constexpr int NPC_COUNT = 100;
+    constexpr int NPC_COUNT = 50;
 
     for (int i = 0; i < NPC_COUNT; ++i) {
         NPCType t = random_type();
@@ -34,12 +34,14 @@ int main() {
         npcs.push_back(npc);
     }
 
+    print_all(npcs);
+
     std::atomic<bool> running{true};
 
     // ---- Fight thread ----
     std::thread fight_thread(std::ref(FightManager::instance()));
 
-    // ---- Move + detect thread ----
+    // ---- Move + detect ----
     std::thread move_thread([&]() {
         while (running) {
             for (auto& npc : npcs) {
@@ -66,7 +68,7 @@ int main() {
         }
     });
 
-    // ---- Print map thread ----
+    // ---- Map thread (1 sec) ----
     std::thread print_thread([&]() {
         while (running) {
             draw_map(npcs);
@@ -74,15 +76,17 @@ int main() {
         }
     });
 
-    // ---- Game timer ----
+    // ---- Game duration ----
     std::this_thread::sleep_for(30s);
     running = false;
 
+    // ---- Finish ----
     move_thread.join();
-    print_thread.detach(); // безопасно, вывод не критичен
+    print_thread.join();
 
-    // ---- Results ----
+    FightManager::instance().stop();
+    fight_thread.join();
+
     print_survivors(npcs);
-
     return 0;
 }
