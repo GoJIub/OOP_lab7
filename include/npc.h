@@ -66,6 +66,8 @@ struct NPC : public std::enable_shared_from_this<NPC> {
     void must_die();
     std::pair<int,int> position() const;
     std::string get_color(NPCType t) const;
+    int get_move_distance() const;
+    int get_kill_distance() const;
 };
 
 std::string type_to_string(NPCType t);

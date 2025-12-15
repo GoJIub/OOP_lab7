@@ -166,49 +166,36 @@ FightManager& FightManager::instance() {
 }
 
 void FightManager::push(FightEvent ev) {
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-        queue.push(std::move(ev));
-    }
-    cv.notify_one();
+    std::lock_guard<std::mutex> lock(mtx);
+    queue.push(std::move(ev));
 }
 
-void FightManager::operator()()
-{
+void FightManager::operator()() {
     using namespace std::chrono_literals;
 
-    constexpr int MAX_EVENTS_PER_TICK = 50; // обрабатываем пачками, повышай/понижай при необходимости
-    std::vector<FightEvent> batch;
-    batch.reserve(MAX_EVENTS_PER_TICK);
+    while (running) {
+        std::optional<FightEvent> ev;
 
-    while (true) {
-        // Подождать либо пока в очереди не появится что-то, либо пока running станет false
         {
-            std::unique_lock<std::mutex> lock(mtx);
-            // cv.wait_for(lock, 100ms, [this]() { return !queue.empty() || !running.load(); });
-            cv.wait(lock, [this]() { return !queue.empty() || !running.load(); });
-
-            // если остановились и очередь пуста => выход
-            if (!running.load() && queue.empty()) {
-                break;
-            }
-
-            // Собираем до MAX_EVENTS_PER_TICK событий в локальную пачку
-            batch.clear();
-            for (int i = 0; i < MAX_EVENTS_PER_TICK && !queue.empty(); ++i) {
-                batch.push_back(std::move(queue.front()));
+            std::lock_guard<std::mutex> lock(mtx);
+            if (!queue.empty()) {
+                ev = queue.front();
                 queue.pop();
             }
-            // release lock; дальше обрабатываем batch без удержания мtx
         }
 
-        // Обрабатываем собранную пачку
-        for (auto &ev : batch) {
-            auto attacker = ev.attacker;
-            auto defender = ev.defender;
+        if (ev) {
+            auto attacker = ev->attacker;
+            auto defender = ev->defender;
 
-            if (!attacker || !defender) continue;
-            if (!attacker->is_alive() || !defender->is_alive()) continue;
+            if (!attacker || !defender || !attacker->is_alive() || !defender->is_alive()) {
+                std::this_thread::sleep_for(100ms);
+                continue;
+            }
+
+            if (!attacker->is_close(defender, attacker->get_kill_distance())) {
+                continue;
+            }
 
             AttackVisitor visitor(attacker);
             FightOutcome outcome = defender->accept(visitor);
@@ -225,23 +212,19 @@ void FightManager::operator()()
                 break;
 
             case FightOutcome::NobodyDied:
-                bool defender_can_be_killed = kills(attacker->type, defender->type);
-                bool attacker_can_be_killed = kills(defender->type, attacker->type);
-
-                if (defender_can_be_killed)
+                if (kills(attacker->type, defender->type)) {
                     defender->notify_fight(attacker, FightOutcome::NobodyDied);
-                if (attacker_can_be_killed)
-                    attacker->notify_fight(defender, FightOutcome::NobodyDied);
+                }
                 break;
             }
+        } else {
+            std::this_thread::sleep_for(100ms);
         }
-        // После обработки пачки вернёмся в wait_for — нет busy-loop
     }
 }
 
 void FightManager::stop() {
-    running.store(false);
-    cv.notify_all(); // разбудить consumer, чтобы он мог выйти при пустой очереди
+    running = false;
 }
 
 // ---------------- Сохранение/Загрузка ----------------
@@ -297,15 +280,6 @@ void print_survivors(const std::vector<std::shared_ptr<NPC>>& npcs) {
         }
 }
 
-int move_distance(NPCType type) {
-    switch (type) {
-        case NPCType::Orc:      return 20;
-        case NPCType::Bear:     return 5;
-        case NPCType::Squirrel: return 5;
-        default: return 0;
-    }
-}
-
 int kill_distance(NPCType type) {
     switch (type) {
         case NPCType::Orc:      return 10;
@@ -343,7 +317,7 @@ void draw_map(const std::vector<std::shared_ptr<NPC>>& list) {
     for (int y = 0; y < GRID; ++y) {
         for (int x = 0; x < GRID; ++x) {
             auto [color, ch] = field[x + y * GRID];
-            std::string reset = "\033[0m";  // Сброс цвета для безопасности
+            std::string reset = "\033[0m";
             std::cout << "[" << color << ch << reset << "]";
         }
         std::cout << '\n';

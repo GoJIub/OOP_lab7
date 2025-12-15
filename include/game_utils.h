@@ -68,7 +68,6 @@ private:
     std::queue<FightEvent> queue;
     std::mutex mtx;
     std::atomic<bool> running{true};
-    std::condition_variable cv;
 };
 
 // ---------------- Вспомогательные функции ----------------

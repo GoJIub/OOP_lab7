@@ -9,7 +9,7 @@ using namespace std::chrono_literals;
 
 
 int main() {
-    // auto consoleObs = ConsoleObserver::get();
+    auto consoleObs = ConsoleObserver::get();
     auto fileObs = FileObserver::get("log.txt");
 
     // ---- NPCs ----
@@ -18,9 +18,10 @@ int main() {
 
     for (int i = 0; i < NPC_COUNT; ++i) {
         NPCType t = random_type();
-        std::string name =
-            (t == NPCType::Orc ? "Orc_" :
-            (t == NPCType::Bear ? "Bear_" : "Squirrel_")) + std::to_string(i);
+        std::string name;
+        if (t == NPCType::Orc) name = "Orc_" + std::to_string(i+1);
+        else if (t == NPCType::Bear) name = "Bear_" + std::to_string(i+1);
+        else name = "Squirrel_" + std::to_string(i+1);
 
         auto npc = createNPC(
             t,
@@ -29,7 +30,7 @@ int main() {
             random_coord(0, MAP_Y)
         );
 
-        // npc->subscribe(consoleObs);
+        npc->subscribe(consoleObs);
         npc->subscribe(fileObs);
         npcs.push_back(npc);
     }
@@ -47,7 +48,7 @@ int main() {
             for (auto& npc : npcs) {
                 if (!npc->is_alive()) continue;
 
-                int d = move_distance(npc->type);
+                int d = npc->get_move_distance();
                 npc->move(
                     std::rand() % (2 * d + 1) - d,
                     std::rand() % (2 * d + 1) - d,
@@ -64,7 +65,7 @@ int main() {
                         a->is_close(b, kill_distance(a->type)))
                         FightManager::instance().push({a, b});
 
-            std::this_thread::sleep_for(10ms);
+            std::this_thread::sleep_for(100ms);
         }
     });
 

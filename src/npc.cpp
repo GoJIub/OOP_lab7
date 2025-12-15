@@ -82,6 +82,24 @@ std::string NPC::get_color(NPCType t) const {
     }
 }
 
+int NPC::get_move_distance() const {
+    switch (type) {
+        case NPCType::Orc:      return 20;
+        case NPCType::Bear:     return 5;
+        case NPCType::Squirrel: return 5;
+        default:                return 0;
+    }
+}
+
+int NPC::get_kill_distance() const {
+    switch (type) {
+        case NPCType::Orc:      return 10;
+        case NPCType::Bear:     return 10;
+        case NPCType::Squirrel: return 5;
+        default:                return 0;
+    }
+}
+
 std::shared_ptr<NPC> createNPC(NPCType type, const std::string &name, int x, int y) {
     switch (type) {
         case NPCType::Orc: return std::make_shared<Orc>(name, x, y);
