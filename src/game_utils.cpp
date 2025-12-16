@@ -3,7 +3,6 @@
 #include <fstream>
 #include <iomanip>
 #include <unordered_set>
-#include <random>
 #include <algorithm>
 #include <sstream>
 
@@ -50,18 +49,14 @@ void ConsoleObserver::on_fight(const std::shared_ptr<NPC>& attacker,
                   << defender->name << " (" << type_to_string(defender->type) << ")\n";
         break;
 
-    case FightOutcome::AttackerKilled:
-        std::cout << ">>> "
-                  << defender->name << " (" << type_to_string(defender->type) << ")"
-                  << " killed "
-                  << attacker->name << " (" << type_to_string(attacker->type) << ")\n";
-        break;
-
-    case FightOutcome::NobodyDied:
+    case FightOutcome::DefenderEscaped:
         std::cout << ">>> "
                   << defender->name << " (" << type_to_string(defender->type) << ")"
                   << " escaped from "
                   << attacker->name << " (" << type_to_string(attacker->type) << ")\n";
+        break;
+
+    case FightOutcome::NoFight:
         break;
     }
 }
@@ -115,49 +110,69 @@ void FileObserver::on_fight(const std::shared_ptr<NPC>& attacker,
     ss << '(' << defender->x << ',' << defender->y << ')';
     std::string dPos = ss.str();
 
-    std::string action =
-        (outcome == FightOutcome::NobodyDied) ? "escaped" : "killed";
+    switch (outcome) {
+    case FightOutcome::DefenderKilled:
+        f << std::left
+          << std::setw(W1) << attacker->name
+          << std::setw(W2) << type_to_string(attacker->type)
+          << std::setw(WP) << aPos
+          << std::setw(WA) << "killed"
+          << std::setw(W3) << defender->name
+          << std::setw(W4) << type_to_string(defender->type)
+          << std::setw(WP2) << dPos
+          << "\n";
+        break;
 
-    f << std::left
-      << std::setw(W1) << attacker->name
-      << std::setw(W2) << type_to_string(attacker->type)
-      << std::setw(WP) << aPos
-      << std::setw(WA) << action
-      << std::setw(W3) << defender->name
-      << std::setw(W4) << type_to_string(defender->type)
-      << std::setw(WP2) << dPos
-      << "\n";
+    case FightOutcome::DefenderEscaped:
+        f << std::left
+          << std::setw(W1) << defender->name
+          << std::setw(W2) << type_to_string(defender->type)
+          << std::setw(WP) << dPos
+          << std::setw(WA) << "escaped"
+          << std::setw(W3) << attacker->name
+          << std::setw(W4) << type_to_string(attacker->type)
+          << std::setw(WP2) << aPos
+          << "\n";
+        break;
+
+    case FightOutcome::NoFight:
+        break;
+    }
 }
 
 // ---------------- Логика боя ----------------
-AttackVisitor::AttackVisitor(const std::shared_ptr<NPC> &attacker_) : attacker(attacker_) {}
+AttackVisitor::AttackVisitor(const std::shared_ptr<NPC>& attacker_)
+    : attacker(attacker_) {}
 
-FightOutcome AttackVisitor::visit(Orc &defender) {
-    return compute(defender);
+FightOutcome AttackVisitor::visit([[maybe_unused]] Orc& defender) {
+    if (!attacker->is_alive()) return FightOutcome::NoFight;
+
+    if (attacker->type == NPCType::Orc)
+        return dice() ? FightOutcome::DefenderKilled : FightOutcome::DefenderEscaped;
+
+    return FightOutcome::NoFight;
 }
 
-FightOutcome AttackVisitor::visit(Squirrel &defender) {
-    return compute(defender);
+FightOutcome AttackVisitor::visit([[maybe_unused]] Bear& defender) {
+    if (!attacker->is_alive()) return FightOutcome::NoFight;
+
+    if (attacker->type == NPCType::Orc)
+        return dice() ? FightOutcome::DefenderKilled : FightOutcome::DefenderEscaped;
+
+    return FightOutcome::NoFight;
 }
 
-FightOutcome AttackVisitor::visit(Bear &defender) {
-    return compute(defender);
+FightOutcome AttackVisitor::visit([[maybe_unused]] Squirrel& defender) {
+    if (!attacker->is_alive()) return FightOutcome::NoFight;
+
+    if (attacker->type == NPCType::Bear)
+        return dice() ? FightOutcome::DefenderKilled : FightOutcome::DefenderEscaped;
+
+    return FightOutcome::NoFight;
 }
 
-FightOutcome AttackVisitor::compute(NPC& defender) {
-    if (!attacker->is_alive() || !defender.is_alive())
-        return FightOutcome::NobodyDied;
-
-    int attack = std::rand() % 6 + 1;
-    int defend = std::rand() % 6 + 1;
-
-    if (attack > defend && kills(attacker->type, defender.type))
-        return FightOutcome::DefenderKilled;
-
-    if (defend > attack && kills(defender.type, attacker->type))
-        return FightOutcome::AttackerKilled;
-
-    return FightOutcome::NobodyDied;
+bool AttackVisitor::dice() {
+    return roll() > roll();
 }
 
 FightManager& FightManager::instance() {
@@ -193,33 +208,47 @@ void FightManager::operator()() {
                 continue;
             }
 
-            if (!attacker->is_close(defender, attacker->get_kill_distance())) {
+            if (!attacker->is_close(defender, attacker->get_kill_distance()))
                 continue;
-            }
 
-            AttackVisitor visitor(attacker);
-            FightOutcome outcome = defender->accept(visitor);
+            AttackVisitor visitor1(attacker);
+            FightOutcome outcome1 = defender->accept(visitor1);
 
-            switch (outcome) {
+            AttackVisitor visitor2(defender);
+            FightOutcome outcome2 = attacker->accept(visitor2);
+
+            switch (outcome1) {
             case FightOutcome::DefenderKilled:
                 defender->must_die();
                 attacker->notify_fight(defender, FightOutcome::DefenderKilled);
                 break;
 
-            case FightOutcome::AttackerKilled:
-                attacker->must_die();
-                defender->notify_fight(attacker, FightOutcome::AttackerKilled);
+            case FightOutcome::DefenderEscaped:
+                attacker->notify_fight(defender, FightOutcome::DefenderEscaped);
                 break;
 
-            case FightOutcome::NobodyDied:
-                if (kills(attacker->type, defender->type)) {
-                    defender->notify_fight(attacker, FightOutcome::NobodyDied);
-                }
+            case FightOutcome::NoFight:
+                defender->notify_fight(attacker, FightOutcome::NoFight);
                 break;
             }
-        } else {
-            std::this_thread::sleep_for(100ms);
+
+            switch (outcome2) {
+            case FightOutcome::DefenderKilled:
+                attacker->must_die();
+                defender->notify_fight(attacker, FightOutcome::DefenderKilled);
+                break;
+
+            case FightOutcome::DefenderEscaped:
+                if (defender->is_alive())
+                    defender->notify_fight(attacker, FightOutcome::DefenderEscaped);
+                break;
+
+            case FightOutcome::NoFight:
+                attacker->notify_fight(defender, FightOutcome::NoFight);
+                break;
+            }
         }
+        std::this_thread::sleep_for(10ms);
     }
 }
 
@@ -280,23 +309,13 @@ void print_survivors(const std::vector<std::shared_ptr<NPC>>& npcs) {
         }
 }
 
-int kill_distance(NPCType type) {
-    switch (type) {
-        case NPCType::Orc:      return 10;
-        case NPCType::Bear:     return 10;
-        case NPCType::Squirrel: return 5;
-        default: return 0;
-    }
-}
-
 void draw_map(const std::vector<std::shared_ptr<NPC>>& list) {
     std::array<std::pair<std::string, char>, GRID * GRID> field{};
     field.fill({"", ' '});
 
     for (auto& npc : list) {
-        if (!npc->is_alive()) continue;
-
-        auto [x, y] = npc->position();
+        int x, y;
+        if (!npc->get_state(x, y)) continue;
         int gx = std::clamp(x * GRID / MAP_X, 0, GRID - 1);
         int gy = std::clamp(y * GRID / MAP_Y, 0, GRID - 1);
 
@@ -336,4 +355,14 @@ int random_coord(int min, int max) {
     static std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<int> dist(min, max);
     return dist(gen);
+}
+
+std::mt19937& rng() {
+    static std::mt19937 gen{std::random_device{}()};
+    return gen;
+}
+
+int roll() {
+    static std::uniform_int_distribution<int> d(1, 6);
+    return d(rng());
 }

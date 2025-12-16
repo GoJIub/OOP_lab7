@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <atomic>
-#include <condition_variable>
+#include <random>
 #include "npc.h"
 #include "orc.h"
 #include "squirrel.h"
@@ -42,12 +42,12 @@ public:
 // ---------------- Логика боя ----------------
 struct AttackVisitor : public IFightVisitor {
     explicit AttackVisitor(const std::shared_ptr<NPC> &attacker_);
-    FightOutcome visit(Orc &defender) override;
-    FightOutcome visit(Squirrel &defender) override;
-    FightOutcome visit(Bear &defender) override;
+    FightOutcome visit([[maybe_unused]] Orc& defender) override;
+    FightOutcome visit([[maybe_unused]] Bear& defender) override;
+    FightOutcome visit([[maybe_unused]] Squirrel& defender) override;
 private:
     std::shared_ptr<NPC> attacker;
-    FightOutcome compute(NPC &defender);
+    bool dice();
 };
 
 struct FightEvent {
@@ -75,8 +75,8 @@ void save_all(const std::vector<std::shared_ptr<NPC>> &list, const std::string &
 std::vector<std::shared_ptr<NPC>> load_all(const std::string &filename);
 void print_all(const std::vector<std::shared_ptr<NPC>> &list);
 void print_survivors(const std::vector<std::shared_ptr<NPC>>& npcs);
-int move_distance(NPCType type);
-int kill_distance(NPCType type);
 void draw_map(const std::vector<std::shared_ptr<NPC>>& list);
 NPCType random_type();
 int random_coord(int min, int max);
+std::mt19937& rng();
+int roll();

@@ -17,9 +17,9 @@ enum class NPCType {
 };
 
 enum class FightOutcome {
-    AttackerKilled,
     DefenderKilled,
-    NobodyDied
+    DefenderEscaped,
+    NoFight
 };
 
 struct IFightVisitor {
@@ -68,11 +68,10 @@ struct NPC : public std::enable_shared_from_this<NPC> {
     std::string get_color(NPCType t) const;
     int get_move_distance() const;
     int get_kill_distance() const;
+    bool get_state(int& x_, int& y_) const;
 };
 
 std::string type_to_string(NPCType t);
 
 std::shared_ptr<NPC> createNPC(NPCType type, const std::string &name, int x, int y);
 std::shared_ptr<NPC> createNPCFromStream(std::istream &is);
-
-bool kills(NPCType attacker, NPCType defender);

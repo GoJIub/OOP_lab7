@@ -121,25 +121,43 @@ TEST(DistanceTest, KillDistance) {
 // ======================================================
 // Kill rules (DETERMINISTIC)
 // ======================================================
-TEST(KillsTest, Rules) {
-    EXPECT_TRUE(kills(NPCType::Orc, NPCType::Bear));
-    EXPECT_TRUE(kills(NPCType::Bear, NPCType::Squirrel));
-    EXPECT_FALSE(kills(NPCType::Squirrel, NPCType::Bear));
+TEST(CanFightTest, Rule1) {
+    auto attacker = createNPC(NPCType::Orc, "O", 0, 0);
+    auto defender = createNPC(NPCType::Bear, "B", 0, 0);
+    AttackVisitor v(attacker);
+    FightOutcome outcome = defender->accept(v);
+    EXPECT_NE(outcome, FightOutcome::NoFight);
+}
+
+TEST(CanFightTest, Rule2) {
+    auto attacker = createNPC(NPCType::Bear, "B", 0, 0);
+    auto defender = createNPC(NPCType::Squirrel, "S", 0, 0);
+    AttackVisitor v(attacker);
+    FightOutcome outcome = defender->accept(v);
+    EXPECT_NE(outcome, FightOutcome::NoFight);
+}
+
+TEST(CanFightTest, Rule3) {
+    auto attacker = createNPC(NPCType::Squirrel, "S", 0, 0);
+    auto defender = createNPC(NPCType::Bear, "B", 0, 0);
+    AttackVisitor v(attacker);
+    FightOutcome outcome = defender->accept(v);
+    EXPECT_EQ(outcome, FightOutcome::NoFight);
 }
 
 // ======================================================
 // Visitor (logic only)
 // ======================================================
 struct DummyVisitor : IFightVisitor {
-    FightOutcome visit(Orc&) override { return FightOutcome::NobodyDied; }
-    FightOutcome visit(Bear&) override { return FightOutcome::DefenderKilled; }
-    FightOutcome visit(Squirrel&) override { return FightOutcome::NobodyDied; }
+    FightOutcome visit(Orc&) override { return FightOutcome::DefenderKilled; }
+    FightOutcome visit(Bear&) override { return FightOutcome::DefenderEscaped; }
+    FightOutcome visit(Squirrel&) override { return FightOutcome::NoFight; }
 };
 
 TEST(VisitorTest, VisitBear) {
     auto b = createNPC(NPCType::Bear,"B",0,0);
     DummyVisitor v;
-    EXPECT_EQ(b->accept(v), FightOutcome::DefenderKilled);
+    EXPECT_EQ(b->accept(v), FightOutcome::DefenderEscaped);
 }
 
 // ======================================================
@@ -172,9 +190,10 @@ TEST(SaveLoadTest, SaveLoadEmpty) {
 // ======================================================
 // FightManager
 // ======================================================
-TEST(FightManagerTest, EscapeOnlyIfKillPossible) {
+TEST(FightManagerTest, NoFightIfVisitorNotApplicable) {
     auto o = createNPC(NPCType::Orc,"O",0,0);
-    auto s = createNPC(NPCType::Squirrel,"S",100,100);
+    auto s = createNPC(NPCType::Squirrel,"S",0,0);
+
     auto obs = std::make_shared<TestObserver>();
     s->subscribe(obs);
 

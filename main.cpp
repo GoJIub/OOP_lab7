@@ -57,15 +57,11 @@ int main() {
                 );
             }
 
-            for (auto& a : npcs)
-                for (auto& b : npcs)
-                    if (a != b &&
-                        a->is_alive() &&
-                        b->is_alive() &&
-                        a->is_close(b, kill_distance(a->type)))
-                        FightManager::instance().push({a, b});
+            for (size_t i = 0; i < npcs.size(); ++i)
+                for (size_t j = i + 1; j < npcs.size(); ++j)
+                    FightManager::instance().push({npcs[i], npcs[j]});
 
-            std::this_thread::sleep_for(100ms);
+            std::this_thread::sleep_for(10ms);
         }
     });
 

@@ -100,6 +100,14 @@ int NPC::get_kill_distance() const {
     }
 }
 
+bool NPC::get_state(int& x_, int& y_) const {
+    std::lock_guard<std::mutex> lck(mtx);
+    if (!alive) return false;
+    x_ = x;
+    y_ = y;
+    return true;
+}
+
 std::shared_ptr<NPC> createNPC(NPCType type, const std::string &name, int x, int y) {
     switch (type) {
         case NPCType::Orc: return std::make_shared<Orc>(name, x, y);
@@ -115,15 +123,4 @@ std::shared_ptr<NPC> createNPCFromStream(std::istream &is) {
     int x, y;
     if (!(is >> t >> name >> x >> y)) return nullptr;
     return createNPC(static_cast<NPCType>(t), name, x, y);
-}
-
-bool kills(NPCType attacker, NPCType defender) {
-    // Орки убивают медведей и орков
-    // Медведи убивают белок
-    // Белки не хотят воевать
-    if (attacker == NPCType::Orc)
-        return (defender == NPCType::Bear || defender == NPCType::Orc);
-    if (attacker == NPCType::Bear)
-        return (defender == NPCType::Squirrel);
-    return false;
 }
