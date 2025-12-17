@@ -34,6 +34,7 @@ add_executable(${CMAKE_PROJECT_NAME}
     src/orc.cpp
     src/squirrel.cpp
     src/bear.cpp
+    src/druid.cpp
     src/game_utils.cpp
 )
 
@@ -50,6 +51,7 @@ add_executable(tests
     src/orc.cpp
     src/squirrel.cpp
     src/bear.cpp
+    src/druid.cpp
     src/game_utils.cpp
 )
 
@@ -64,4 +66,4 @@ target_link_libraries(tests
 )
 
 # === Добавление тестов в ctest ===
-add_test(NAME Homework5Tests COMMAND tests)
+add_test(NAME Homework7Tests COMMAND tests)

@@ -4,5 +4,5 @@
 struct Orc : public NPC {
     Orc() = default;
     Orc(const std::string &nm, int x_, int y_);
-    FightOutcome accept(IFightVisitor &visitor) override;
+    InteractionOutcome accept(IInteractionVisitor &visitor) override;
 };

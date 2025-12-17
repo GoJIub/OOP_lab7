@@ -1,5 +1,5 @@
-#include "squirrel.h"
-#include "npc.h"
+#include "../include/squirrel.h"
+#include "../include/npc.h"
 
 Squirrel::Squirrel(const std::string &nm, int x_, int y_) {
     type = NPCType::Squirrel;
@@ -8,6 +8,6 @@ Squirrel::Squirrel(const std::string &nm, int x_, int y_) {
     y = y_;
 }
 
-FightOutcome Squirrel::accept(IFightVisitor &visitor) {
+InteractionOutcome Squirrel::accept(IInteractionVisitor &visitor) {
     return visitor.visit(*this);
 }

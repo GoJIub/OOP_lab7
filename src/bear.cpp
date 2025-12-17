@@ -1,5 +1,5 @@
-#include "bear.h"
-#include "npc.h"
+#include "../include/bear.h"
+#include "../include/npc.h"
 
 Bear::Bear(const std::string &nm, int x_, int y_) {
     type = NPCType::Bear;
@@ -8,6 +8,6 @@ Bear::Bear(const std::string &nm, int x_, int y_) {
     y = y_;
 }
 
-FightOutcome Bear::accept(IFightVisitor &visitor) {
+InteractionOutcome Bear::accept(IInteractionVisitor &visitor) {
     return visitor.visit(*this);
 }

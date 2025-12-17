@@ -19,9 +19,10 @@ int main() {
     for (int i = 0; i < NPC_COUNT; ++i) {
         NPCType t = random_type();
         std::string name;
-        if (t == NPCType::Orc) name = "Orc_" + std::to_string(i+1);
-        else if (t == NPCType::Bear) name = "Bear_" + std::to_string(i+1);
-        else name = "Squirrel_" + std::to_string(i+1);
+        if (t == NPCType::Orc)           name = "Orc_" + std::to_string(i+1);
+        else if (t == NPCType::Bear)     name = "Bear_" + std::to_string(i+1);
+        else if (t == NPCType::Squirrel) name = "Squirrel_" + std::to_string(i+1);
+        else                             name = "Druid_" + std::to_string(i+1);
 
         auto npc = createNPC(
             t,
@@ -30,7 +31,7 @@ int main() {
             random_coord(0, MAP_Y)
         );
 
-        npc->subscribe(consoleObs);
+        // npc->subscribe(consoleObs);
         npc->subscribe(fileObs);
         npcs.push_back(npc);
     }
@@ -39,8 +40,8 @@ int main() {
 
     std::atomic<bool> running{true};
 
-    // ---- Fight thread ----
-    std::thread fight_thread(std::ref(FightManager::instance()));
+    // ---- Interaction thread ----
+    std::thread Interaction_thread(std::ref(InteractionManager::instance()));
 
     // ---- Move + detect ----
     std::thread move_thread([&]() {
@@ -59,7 +60,7 @@ int main() {
 
             for (size_t i = 0; i < npcs.size(); ++i)
                 for (size_t j = i + 1; j < npcs.size(); ++j)
-                    FightManager::instance().push({npcs[i], npcs[j]});
+                    InteractionManager::instance().push({npcs[i], npcs[j]});
 
             std::this_thread::sleep_for(10ms);
         }
@@ -81,8 +82,8 @@ int main() {
     move_thread.join();
     print_thread.join();
 
-    FightManager::instance().stop();
-    fight_thread.join();
+    InteractionManager::instance().stop();
+    Interaction_thread.join();
 
     print_survivors(npcs);
     return 0;

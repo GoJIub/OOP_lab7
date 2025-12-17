@@ -12,6 +12,7 @@
 #include "../include/orc.h"
 #include "../include/squirrel.h"
 #include "../include/bear.h"
+#include "../include/druid.h"
 #include "../include/game_utils.h"
 
 using namespace std::chrono_literals;
@@ -19,19 +20,19 @@ using namespace std::chrono_literals;
 // ======================================================
 // Observers
 // ======================================================
-struct TestObserver : public IFightObserver {
+struct TestObserver : public IInteractionObserver {
     struct Event {
-        std::string attacker;
-        std::string defender;
-        FightOutcome outcome;
+        std::string actor;
+        std::string target;
+        InteractionOutcome outcome;
     };
 
     std::vector<Event> events;
     std::mutex mtx;
 
-    void on_fight(const std::shared_ptr<NPC>& a,
+    void on_interaction(const std::shared_ptr<NPC>& a,
                   const std::shared_ptr<NPC>& d,
-                  FightOutcome o) override {
+                  InteractionOutcome o) override {
         std::lock_guard<std::mutex> lck(mtx);
         events.push_back({a->name, d->name, o});
     }
@@ -47,17 +48,17 @@ TEST(ObserverTest, MultipleObserversNotified) {
     b->subscribe(obs1);
     b->subscribe(obs2);
 
-    std::thread t(std::ref(FightManager::instance()));
-    FightManager::instance().push({o,b});
+    std::thread t(std::ref(InteractionManager::instance()));
+    InteractionManager::instance().push({o,b});
 
     std::this_thread::sleep_for(200ms);
-    FightManager::instance().stop();
+    InteractionManager::instance().stop();
     t.join();
 
     EXPECT_EQ(obs1->events.size(), obs2->events.size());
 }
 
-TEST(ObserverTest, ObserverNotCalledIfNoFight) {
+TEST(ObserverTest, ObserverNotCalledIfNoInteraction) {
     auto o = createNPC(NPCType::Orc,"O",0,0);
     auto obs = std::make_shared<TestObserver>();
     o->subscribe(obs);
@@ -91,6 +92,14 @@ TEST(NPCTest, CreateSquirrel) {
     EXPECT_EQ(s->y, 2);
 }
 
+TEST(NPCTest, NPCTest_CreateDruid_Test) {
+    auto d = createNPC(NPCType::Druid, "D", 3, 3);
+    EXPECT_EQ(d->type, NPCType::Druid);
+    EXPECT_EQ(d->name, "D");
+    EXPECT_EQ(d->x, 3);
+    EXPECT_EQ(d->y, 3);
+}
+
 TEST(NPCTest, EmptyNameAllowed) {
     auto o = createNPC(NPCType::Orc,"",0,0);
     EXPECT_EQ(o->name,"");
@@ -108,56 +117,132 @@ TEST(NPCTest, LongName) {
 TEST(DistanceTest, IsCloseExact) {
     auto a = createNPC(NPCType::Orc,"A",0,0);
     auto b = createNPC(NPCType::Bear,"B",6,8);
-    EXPECT_TRUE(a->is_close(b,a->get_kill_distance()));
-    EXPECT_FALSE(a->is_close(b,a->get_kill_distance()-1));
+    EXPECT_TRUE(a->is_close(b,a->get_interaction_distance()));
+    EXPECT_FALSE(a->is_close(b,a->get_interaction_distance()-1));
 }
 
 TEST(DistanceTest, KillDistance) {
-    EXPECT_EQ(createNPC(NPCType::Orc,"O",0,0)->get_kill_distance(), 10);
-    EXPECT_EQ(createNPC(NPCType::Bear,"B",0,0)->get_kill_distance(), 10);
-    EXPECT_EQ(createNPC(NPCType::Squirrel,"S",0,0)->get_kill_distance(), 5);
+    EXPECT_EQ(createNPC(NPCType::Orc,"O",0,0)->get_interaction_distance(), 10);
+    EXPECT_EQ(createNPC(NPCType::Bear,"B",0,0)->get_interaction_distance(), 10);
+    EXPECT_EQ(createNPC(NPCType::Squirrel,"S",0,0)->get_interaction_distance(), 5);
 }
 
 // ======================================================
 // Kill rules (DETERMINISTIC)
 // ======================================================
-TEST(CanFightTest, Rule1) {
-    auto attacker = createNPC(NPCType::Orc, "O", 0, 0);
-    auto defender = createNPC(NPCType::Bear, "B", 0, 0);
-    AttackVisitor v(attacker);
-    FightOutcome outcome = defender->accept(v);
-    EXPECT_NE(outcome, FightOutcome::NoFight);
+TEST(CanKillTest, Rule1) {
+    auto actor = createNPC(NPCType::Orc, "O1", 0, 0);
+    auto target = createNPC(NPCType::Orc, "O2", 0, 0);
+    AttackVisitor v(actor);
+    InteractionOutcome outcome = target->accept(v);
+    EXPECT_NE(outcome, InteractionOutcome::NoInteraction);
 }
 
-TEST(CanFightTest, Rule2) {
-    auto attacker = createNPC(NPCType::Bear, "B", 0, 0);
-    auto defender = createNPC(NPCType::Squirrel, "S", 0, 0);
-    AttackVisitor v(attacker);
-    FightOutcome outcome = defender->accept(v);
-    EXPECT_NE(outcome, FightOutcome::NoFight);
+TEST(CanKillTest, Rule2) {
+    auto actor = createNPC(NPCType::Orc, "O", 0, 0);
+    auto target = createNPC(NPCType::Bear, "B", 0, 0);
+    AttackVisitor v(actor);
+    InteractionOutcome outcome = target->accept(v);
+    EXPECT_NE(outcome, InteractionOutcome::NoInteraction);
 }
 
-TEST(CanFightTest, Rule3) {
-    auto attacker = createNPC(NPCType::Squirrel, "S", 0, 0);
-    auto defender = createNPC(NPCType::Bear, "B", 0, 0);
-    AttackVisitor v(attacker);
-    FightOutcome outcome = defender->accept(v);
-    EXPECT_EQ(outcome, FightOutcome::NoFight);
+TEST(CanKillTest, Rule3) {
+    auto actor = createNPC(NPCType::Orc, "O", 0, 0);
+    auto target = createNPC(NPCType::Druid, "D", 0, 0);
+    AttackVisitor v(actor);
+    InteractionOutcome outcome = target->accept(v);
+    EXPECT_NE(outcome, InteractionOutcome::NoInteraction);
+}
+
+TEST(CanKillTest, Rule4) {
+    auto actor = createNPC(NPCType::Bear, "B", 0, 0);
+    auto target = createNPC(NPCType::Squirrel, "S", 0, 0);
+    AttackVisitor v(actor);
+    InteractionOutcome outcome = target->accept(v);
+    EXPECT_NE(outcome, InteractionOutcome::NoInteraction);
+}
+
+// ======================================================
+// Support rules (DETERMINISTIC)
+// ======================================================
+TEST(DruidSupportTest, HealsDeadBear) {
+    auto druid = createNPC(NPCType::Druid, "D", 0, 0);
+    auto bear  = createNPC(NPCType::Bear,  "B",  1, 1);
+
+    bear->must_die();
+    ASSERT_FALSE(bear->is_alive());
+
+    SupportVisitor visitor(druid);
+    auto outcome = bear->accept(visitor);
+
+    EXPECT_EQ(outcome, InteractionOutcome::TargetHealed);
+
+    bear->heal();
+    EXPECT_TRUE(bear->is_alive());
+}
+
+TEST(DruidSupportTest, HealsDeadSquirrel) {
+    auto druid = createNPC(NPCType::Druid, "D", 0, 0);
+    auto squirrel  = createNPC(NPCType::Squirrel,  "S",  1, 1);
+
+    squirrel->must_die();
+    ASSERT_FALSE(squirrel->is_alive());
+
+    SupportVisitor visitor(druid);
+    auto outcome = squirrel->accept(visitor);
+
+    EXPECT_EQ(outcome, InteractionOutcome::TargetHealed);
+
+    squirrel->heal();
+    EXPECT_TRUE(squirrel->is_alive());
+}
+
+TEST(DruidSupportTest, HealsDeadOrc) {
+    auto druid = createNPC(NPCType::Druid, "D", 0, 0);
+    auto orc  = createNPC(NPCType::Orc,  "O",  1, 1);
+
+    orc->must_die();
+    ASSERT_FALSE(orc->is_alive());
+
+    SupportVisitor visitor(druid);
+    auto outcome = orc->accept(visitor);
+
+    EXPECT_EQ(outcome, InteractionOutcome::NoInteraction);
+    EXPECT_FALSE(orc->is_alive());
 }
 
 // ======================================================
 // Visitor (logic only)
 // ======================================================
-struct DummyVisitor : IFightVisitor {
-    FightOutcome visit(Orc&) override { return FightOutcome::DefenderKilled; }
-    FightOutcome visit(Bear&) override { return FightOutcome::DefenderEscaped; }
-    FightOutcome visit(Squirrel&) override { return FightOutcome::NoFight; }
+struct DummyVisitor : IInteractionVisitor {
+    InteractionOutcome visit(Orc&) override { return InteractionOutcome::TargetKilled; }
+    InteractionOutcome visit(Bear&) override { return InteractionOutcome::TargetEscaped; }
+    InteractionOutcome visit(Squirrel&) override { return InteractionOutcome::TargetHealed; }
+    InteractionOutcome visit(Druid&) override { return InteractionOutcome::NoInteraction; }
 };
+
+TEST(VisitorTest, VisitOrc) {
+    auto o = createNPC(NPCType::Orc,"O",0,0);
+    DummyVisitor v;
+    EXPECT_EQ(o->accept(v), InteractionOutcome::TargetKilled);
+}
 
 TEST(VisitorTest, VisitBear) {
     auto b = createNPC(NPCType::Bear,"B",0,0);
     DummyVisitor v;
-    EXPECT_EQ(b->accept(v), FightOutcome::DefenderEscaped);
+    EXPECT_EQ(b->accept(v), InteractionOutcome::TargetEscaped);
+}
+
+TEST(VisitorTest, VisitSquirrel) {
+    auto s = createNPC(NPCType::Squirrel,"S",0,0);
+    DummyVisitor v;
+    EXPECT_EQ(s->accept(v), InteractionOutcome::TargetHealed);
+}
+
+TEST(VisitorTest, VisitDruid) {
+    auto d = createNPC(NPCType::Druid,"D",0,0);
+    DummyVisitor v;
+    EXPECT_EQ(d->accept(v), InteractionOutcome::NoInteraction);
 }
 
 // ======================================================
@@ -188,20 +273,20 @@ TEST(SaveLoadTest, SaveLoadEmpty) {
 }
 
 // ======================================================
-// FightManager
+// InteractionManager
 // ======================================================
-TEST(FightManagerTest, NoFightIfVisitorNotApplicable) {
+TEST(InteractionManagerTest, NoInteractionIfVisitorNotApplicable) {
     auto o = createNPC(NPCType::Orc,"O",0,0);
     auto s = createNPC(NPCType::Squirrel,"S",0,0);
 
     auto obs = std::make_shared<TestObserver>();
     s->subscribe(obs);
 
-    std::thread t(std::ref(FightManager::instance()));
-    FightManager::instance().push({o,s});
+    std::thread t(std::ref(InteractionManager::instance()));
+    InteractionManager::instance().push({o,s});
 
     std::this_thread::sleep_for(200ms);
-    FightManager::instance().stop();
+    InteractionManager::instance().stop();
     t.join();
 
     EXPECT_TRUE(obs->events.empty());

@@ -15,57 +15,73 @@ constexpr int MAP_Y = 100;
 constexpr int GRID = 20;
 
 // ---------------- Наблюдатели ----------------
-class ConsoleObserver : public IFightObserver {
+class ConsoleObserver : public IInteractionObserver {
 private:
     ConsoleObserver() {};
 
 public:
-    static std::shared_ptr<IFightObserver> get();
-    void on_fight(const std::shared_ptr<NPC> &attacker,
-                  const std::shared_ptr<NPC> &defender,
-                  FightOutcome outcome) override;
+    static std::shared_ptr<IInteractionObserver> get();
+    void on_interaction(const std::shared_ptr<NPC> &actor,
+                  const std::shared_ptr<NPC> &target,
+                  InteractionOutcome outcome) override;
 };
 
-class FileObserver : public IFightObserver {
+class FileObserver : public IInteractionObserver {
 private:
     explicit FileObserver(const std::string& filename);
     std::string fname;
     static const int W1, W2, WP, WA, W3, W4, WP2;
 
 public:
-    static std::shared_ptr<IFightObserver> get(const std::string& filename);
-    void on_fight(const std::shared_ptr<NPC> &attacker,
-                  const std::shared_ptr<NPC> &defender,
-                  FightOutcome outcome) override;
+    static std::shared_ptr<IInteractionObserver> get(const std::string& filename);
+    void on_interaction(const std::shared_ptr<NPC> &actor,
+                  const std::shared_ptr<NPC> &target,
+                  InteractionOutcome outcome) override;
 };
 
 // ---------------- Логика боя ----------------
-struct AttackVisitor : public IFightVisitor {
-    explicit AttackVisitor(const std::shared_ptr<NPC> &attacker_);
-    FightOutcome visit([[maybe_unused]] Orc& defender) override;
-    FightOutcome visit([[maybe_unused]] Bear& defender) override;
-    FightOutcome visit([[maybe_unused]] Squirrel& defender) override;
+struct AttackVisitor : public IInteractionVisitor {
+    explicit AttackVisitor(const std::shared_ptr<NPC> &actor_);
+    InteractionOutcome visit([[maybe_unused]] Orc& target) override;
+    InteractionOutcome visit([[maybe_unused]] Bear& target) override;
+    InteractionOutcome visit([[maybe_unused]] Squirrel& target) override;
+    InteractionOutcome visit([[maybe_unused]] Druid& target) override;
 private:
-    std::shared_ptr<NPC> attacker;
+    std::shared_ptr<NPC> actor;
     bool dice();
 };
 
-struct FightEvent {
-    std::shared_ptr<NPC> attacker;
-    std::shared_ptr<NPC> defender;
+struct SupportVisitor : public IInteractionVisitor {
+    explicit SupportVisitor(const std::shared_ptr<NPC>& actor_);
+
+    InteractionOutcome visit(Orc&) override;
+    InteractionOutcome visit(Bear&) override;
+    InteractionOutcome visit(Squirrel&) override;
+    InteractionOutcome visit(Druid&) override;
+
+private:
+    std::shared_ptr<NPC> actor;
 };
 
-class FightManager {
-public:
-    static FightManager& instance();
+struct InteractionEvent {
+    std::shared_ptr<NPC> actor;
+    std::shared_ptr<NPC> target;
+};
 
-    void push(FightEvent ev);
+class InteractionManager {
+public:
+    static InteractionManager& instance();
+
+    void push(InteractionEvent ev);
+    void apply_outcome(const std::shared_ptr<NPC>& actor,
+                   const std::shared_ptr<NPC>& target,
+                   InteractionOutcome outcome);
     void operator()();
     void stop();
 
 private:
-    FightManager() = default;
-    std::queue<FightEvent> queue;
+    InteractionManager() = default;
+    std::queue<InteractionEvent> queue;
     std::mutex mtx;
     std::atomic<bool> running{true};
 };

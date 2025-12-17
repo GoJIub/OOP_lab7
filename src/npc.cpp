@@ -2,26 +2,27 @@
 #include <sstream>
 #include <stdexcept>
 #include <random>
-#include "npc.h"
-#include "orc.h"
-#include "squirrel.h"
-#include "bear.h"
+#include "../include/npc.h"
+#include "../include/orc.h"
+#include "../include/squirrel.h"
+#include "../include/bear.h"
+#include "../include/druid.h"
 
 NPC::NPC(NPCType t, std::string_view nm, int x_, int y_)
     : type(t), name(nm), x(x_), y(y_)
 {}
 
-void NPC::subscribe(const std::shared_ptr<IFightObserver> &obs) {
+void NPC::subscribe(const std::shared_ptr<IInteractionObserver> &obs) {
     if (!obs) return;
     observers.push_back(obs);
 }
 
-void NPC::notify_fight(const std::shared_ptr<NPC>& other,
-                       FightOutcome outcome)
+void NPC::notify_interaction(const std::shared_ptr<NPC>& other,
+                       InteractionOutcome outcome)
 {
 
     for (auto &o : observers)
-        o->on_fight(std::shared_ptr<NPC>(this, [](NPC *) {}), other, outcome);
+        o->on_interaction(std::shared_ptr<NPC>(this, [](NPC *) {}), other, outcome);
 }
 
 void NPC::save(std::ostream &os) const {
@@ -33,6 +34,7 @@ std::string type_to_string(NPCType t) {
         case NPCType::Orc:      return "Orc";
         case NPCType::Squirrel: return "Squirrel";
         case NPCType::Bear:     return "Bear";
+        case NPCType::Druid:    return "Druid";
         default:                return "Unknown";
     }
 }
@@ -67,6 +69,11 @@ void NPC::must_die() {
     alive = false;
 }
 
+void NPC::heal() {
+    std::lock_guard<std::mutex> lck(mtx);
+    alive = true;
+}
+
 std::pair<int,int> NPC::position() const {
     std::lock_guard<std::mutex> lck(mtx);
     return {x, y};
@@ -75,10 +82,11 @@ std::pair<int,int> NPC::position() const {
 std::string NPC::get_color(NPCType t) const {
     std::lock_guard<std::mutex> lck(mtx);
     switch (t) {
-        case NPCType::Orc: return "\033[31m";
-        case NPCType::Bear: return "\033[33m";
+        case NPCType::Orc:      return "\033[31m";
+        case NPCType::Bear:     return "\033[33m";
         case NPCType::Squirrel: return "\033[32m";
-        default: return "\033[35m";
+        case NPCType::Druid:    return "\033[36m";
+        default:                return "\033[35m";
     }
 }
 
@@ -87,15 +95,17 @@ int NPC::get_move_distance() const {
         case NPCType::Orc:      return 20;
         case NPCType::Bear:     return 5;
         case NPCType::Squirrel: return 5;
+        case NPCType::Druid:    return 10;
         default:                return 0;
     }
 }
 
-int NPC::get_kill_distance() const {
+int NPC::get_interaction_distance() const {
     switch (type) {
         case NPCType::Orc:      return 10;
         case NPCType::Bear:     return 10;
         case NPCType::Squirrel: return 5;
+        case NPCType::Druid:    return 10;
         default:                return 0;
     }
 }
@@ -110,9 +120,10 @@ bool NPC::get_state(int& x_, int& y_) const {
 
 std::shared_ptr<NPC> createNPC(NPCType type, const std::string &name, int x, int y) {
     switch (type) {
-        case NPCType::Orc: return std::make_shared<Orc>(name, x, y);
+        case NPCType::Orc:      return std::make_shared<Orc>(name, x, y);
         case NPCType::Squirrel: return std::make_shared<Squirrel>(name, x, y);
-        case NPCType::Bear: return std::make_shared<Bear>(name, x, y);
+        case NPCType::Bear:     return std::make_shared<Bear>(name, x, y);
+        case NPCType::Druid:    return std::make_shared<Druid>(name, x, y);
         default: return nullptr;
     }
 }

@@ -1,5 +1,5 @@
-#include "orc.h"
-#include "npc.h"
+#include "../include/orc.h"
+#include "../include/npc.h"
 
 Orc::Orc(const std::string &nm, int x_, int y_) {
     type = NPCType::Orc;
@@ -8,6 +8,6 @@ Orc::Orc(const std::string &nm, int x_, int y_) {
     y = y_;
 }
 
-FightOutcome Orc::accept(IFightVisitor &visitor) {
+InteractionOutcome Orc::accept(IInteractionVisitor &visitor) {
     return visitor.visit(*this);
 }
